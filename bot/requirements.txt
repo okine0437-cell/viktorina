@@ -1,6 +1,0 @@
-aiogram>=3.10.0
-fastapi
-uvicorn
-jinja2
-asyncpg
-python-dotenv
