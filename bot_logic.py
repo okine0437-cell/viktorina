@@ -2,7 +2,8 @@
 import os
 import json
 import re
-from aiogram import Router, F, types, Bot
+# ДОБАВЛЕН Dispatcher в импорты
+from aiogram import Router, F, types, Bot, Dispatcher
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -15,12 +16,15 @@ import database as db
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", 12345))
-# URL вашего сайта на Render (заполним после деплоя, пока заглушка)
-# Пример: https://my-quiz-bot.onrender.com
 WEB_APP_URL = os.getenv("WEB_APP_URL", "") 
 
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-router = Router()
+
+# --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+dp = Dispatcher()  # Создаем диспетчер
+router = Router()  # Создаем роутер
+dp.include_router(router) # Подключаем роутер к диспетчеру
+# -------------------------
 
 # --- СОСТОЯНИЯ ---
 class Registration(StatesGroup):
@@ -35,14 +39,14 @@ class QuizCreation(StatesGroup):
 
 class AdminActions(StatesGroup):
     waiting_role_id = State()
-    waiting_role_name = State() # teacher/student/admin
+    waiting_role_name = State() 
     waiting_ban_id = State()
     waiting_ban_reason = State()
 
 class StudentActions(StatesGroup):
     waiting_quiz_code = State()
 
-# --- ТЕКСТЫ (Сокращенно) ---
+# --- ТЕКСТЫ ---
 MESSAGES = {
     "ru": {
         "menu_admin": "🛠 Админка",
@@ -64,7 +68,6 @@ MESSAGES = {
         "open_webapp": "Нажмите кнопку ниже, чтобы начать тест 👇"
     }
 }
-# (Для краткости я оставил только RU, добавьте KZ по аналогии из прошлого кода)
 
 # --- КЛАВИАТУРЫ ---
 def get_main_menu(role):
@@ -88,16 +91,14 @@ def get_role_kb():
 
 @router.message(CommandStart())
 async def start(message: types.Message, state: FSMContext):
-    await db.init_db() # Инициализация (лучше делать при старте app, но тут для надежности)
+    await db.init_db() 
     uid = message.from_user.id
     
-    # Проверка бана
     user = await db.get_user(uid)
     if user and user['is_banned']:
         await message.answer(f"⛔ БАН: {user['ban_reason']}")
         return
 
-    # Авто-регистрация админа
     if uid == ADMIN_ID:
         if not user:
             await db.add_user(uid, "Admin", "ru", message.from_user.username, message.from_user.full_name, "admin")
@@ -112,7 +113,7 @@ async def start(message: types.Message, state: FSMContext):
     await message.answer(MESSAGES['ru'][f"menu_{user['role']}"], 
                          reply_markup=get_main_menu(user['role']))
 
-# --- АДМИН: СМЕНА РОЛИ (ИСПРАВЛЕНО) ---
+# --- АДМИН: СМЕНА РОЛИ ---
 @router.callback_query(F.data == "set_role")
 async def set_role_start(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer(MESSAGES['ru']["role_ask_id"])
@@ -131,7 +132,7 @@ async def role_id_input(message: types.Message, state: FSMContext):
 
 @router.callback_query(AdminActions.waiting_role_name)
 async def role_finish(call: types.CallbackQuery, state: FSMContext):
-    role = call.data.split("_")[1] # role_admin -> admin
+    role = call.data.split("_")[1] 
     data = await state.get_data()
     target_id = data['target_id']
     
@@ -140,7 +141,7 @@ async def role_finish(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.answer()
 
-# --- АДМИН: ПОЛЬЗОВАТЕЛИ И БАН (ИСПРАВЛЕНО) ---
+# --- АДМИН: ПОЛЬЗОВАТЕЛИ И БАН ---
 @router.callback_query(F.data == "view_users")
 async def view_users(call: types.CallbackQuery, state: FSMContext):
     users = await db.get_all_users()
@@ -175,7 +176,7 @@ async def ban_finish(message: types.Message, state: FSMContext):
         await message.answer(f"⛔ Пользователь {uid} забанен.")
     await state.clear()
 
-# --- АДМИН: СОЗДАНИЕ ТЕСТА (Упрощенно - только Smart) ---
+# --- АДМИН: СОЗДАНИЕ ТЕСТА ---
 @router.callback_query(F.data == "create_quiz")
 async def create_start(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer("Название теста:")
@@ -197,7 +198,6 @@ async def create_code(message: types.Message, state: FSMContext):
 
 @router.message(QuizCreation.waiting_smart_input)
 async def create_parse(message: types.Message, state: FSMContext):
-    # Умный парсинг
     text = message.text
     questions = []
     blocks = re.split(r'\n\s*\n', text.strip())
@@ -238,8 +238,6 @@ async def give_webapp_link(message: types.Message, state: FSMContext):
         await message.answer("Нет такого теста.")
         return
     
-    # Генерируем ссылку на наш сайт
-    # Передаем user_id и quiz_code в URL
     webapp_url = f"{WEB_APP_URL}/quiz/{code}?user_id={message.from_user.id}"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
